@@ -1,3 +1,5 @@
+--Author: Duncan Levings
+--Date: 2/17/2020
 
 -- Import libraries
 local GUI = require("GUI")
@@ -254,7 +256,7 @@ local function serverSend()
   for k, v in ipairs(destTable) do
     -- modem address, string data
     net.sendMessage(v.address, v.data.status)
-    table.insert(destLog.lines, {text = string.format("Sending to ... %s", v.name), color = 0xFFFFFF})
+    table.insert(destLog.lines, {text = string.format("Sending to ... %s : %s", v.name, v.data.status), color = 0xFFFFFF})
   end
 end
 
@@ -265,9 +267,12 @@ local function serverReceive(source, data)
     if v.address == source then
       
       local receivedTable, reason = text.deserialize(data)
-      GUI.alert(receivedTable)
-      -- writeDataTable(v.file, receivedTable)
-      table.insert(recLog.lines, {text = string.format("Received from ... %s", v.name), color = 0xFFFFFF})
+      if receivedTable then
+        writeDataTable(v.file, receivedTable)
+        table.insert(recLog.lines, {text = string.format("Received from ... %s : %s", v.name, receivedTable.status), color = 0xFFFFFF})
+      else 
+        table.insert(recLog.lines, {text = string.format("ERROR from ... %s : %s", v.name, reason), color = 0xFF0000})
+      end
     end
   end
 end
@@ -306,12 +311,12 @@ end
 getDestinations() 
 
 -- main loop for sending
--- event.addHandler(function()
---   if isActive then
---     serverSend()
---     workspace:draw()
---   end
--- end, 4)
+event.addHandler(function()
+  if isActive then
+    serverSend()
+    workspace:draw()
+  end
+end, 4)
 
 -- main loop for receiving
 -- e1 = event, e2 = destination, e3 = source, e4 = port, e5 = distance, e6 = message data

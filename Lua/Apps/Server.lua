@@ -1,6 +1,11 @@
 --Author: Duncan Levings
 --Date: 2/17/2020
 
+--ToDO:
+--refactor GUI
+--add settings for: delay between message sent
+--time duration between sent
+
 -- Import libraries
 local GUI = require("GUI")
 local system = require("System")

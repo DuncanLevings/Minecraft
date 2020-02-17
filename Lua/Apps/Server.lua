@@ -250,8 +250,8 @@ end
 
 local function serverSend()
   -- clear log
-  -- destLog.lines = {}
-  -- recLog.lines = {}
+  destLog.lines = {}
+  recLog.lines = {}
 
   for k, v in ipairs(destTable) do
     -- modem address, string data
@@ -316,7 +316,7 @@ event.addHandler(function()
     serverSend()
     workspace:draw()
   end
-end, 4)
+end, 30)
 
 -- main loop for receiving
 -- e1 = event, e2 = destination, e3 = source, e4 = port, e5 = distance, e6 = message data

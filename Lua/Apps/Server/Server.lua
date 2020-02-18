@@ -5,6 +5,8 @@
 --refactor GUI
 --add settings for: delay between message sent
 --time duration between sent
+--status only toggle
+--possibly need to ration out the requests if list gets large
 
 -- Import libraries
 local GUI = require("GUI")
@@ -18,7 +20,7 @@ local text = require("Text")
 ---------------------------------------------------------------------------------
 -- GUI
 
--- Add a new window to MineOS workspace
+-- Add a new window workspace
 local workspace = GUI.workspace()
 
 -- Main background
@@ -259,9 +261,14 @@ local function serverSend()
   recLog.lines = {}
 
   for k, v in ipairs(destTable) do
-    -- modem address, string data
-    net.sendMessage(v.address, v.data.status)
-    table.insert(destLog.lines, {text = string.format("Sending to ... %s : %s", v.name, v.data.status), color = 0xFFFFFF})
+    -- modem address, data
+    local serializedTable, reason  = text.serialize(v.data)
+    if serializedTable then
+      net.sendMessage(v.address, serializedTable)
+      table.insert(destLog.lines, {text = string.format("Sending to ... %s", v.name), color = 0xFFFFFF})
+    else 
+      table.insert(destLog.lines, {text = string.format("ERROR to ... %s", v.name), color = 0xFF0000})
+    end
   end
 end
 
@@ -274,9 +281,9 @@ local function serverReceive(source, data)
       local receivedTable, reason = text.deserialize(data)
       if receivedTable then
         writeDataTable(v.file, receivedTable)
-        table.insert(recLog.lines, {text = string.format("Received from ... %s : %s", v.name, receivedTable.status), color = 0xFFFFFF})
+        table.insert(recLog.lines, {text = string.format("Received from ... %s", v.name), color = 0xFFFFFF})
       else 
-        table.insert(recLog.lines, {text = string.format("ERROR from ... %s : %s", v.name, reason), color = 0xFF0000})
+        table.insert(recLog.lines, {text = string.format("ERROR from ... %s", v.name), color = 0xFF0000})
       end
     end
   end

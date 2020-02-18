@@ -31,7 +31,7 @@ local workspace = GUI.workspace()
 workspace:addChild(GUI.panel(1, 1, workspace.width, workspace.height, BACKGROUND))
 
 -- Add menu object to workspace
-local menu = workspace:addChild(GUI.menu(1, 1, workspace.width, FOREGROUND, DARK_TEXT, 0x3366CC, LIGHT_TEXT))
+local menu = workspace:addChild(GUI.menu(1, 1, workspace.width, FOREGROUND, DARK_TEXT, LIST_SELECTED, LIGHT_TEXT))
 menu:addItem("AE2 AutoCrafter", 0x0)
 local taskMenu = menu:addItem("Tasks")
 local configMenu = menu:addItem("Config")
@@ -246,7 +246,7 @@ local function checkComponent()
 end
 
 -- load all items that are craftable from AE2 network
-local function loadAllRecipes()
+local function loadAvailableRecipes()
 
   local index = {}
   for _, recipe in ipairs(selectedRecipes) do
@@ -316,10 +316,12 @@ local function addRecipe()
       
       recipe.wanted = tonumber(amount.text)
       recipe.threshold = tonumber(threshold.text)
-
       -- GUI.alert(recipe) --debugging
+
+      -- update left panel list
       table.insert(selectedRecipes, recipe)
       updateSelectedRecipeList()
+
       -- save to table
       -- writeDestTable(destTable)
 
@@ -349,7 +351,7 @@ local function filterAvailableRecipes()
     updateAvailableRecipeList(filteredRecipes, 2)
   else --reload all available
     isFiltered = false
-    loadAllRecipes()
+    loadAvailableRecipes()
   end
   clearDisplay()
 end
@@ -358,15 +360,22 @@ end
 -- event handles
 
 taskMenu.onTouch = function()
-  configLayout.hidden = true
-  taskLayout.hidden = false
-  workspace:draw()
+  if taskLayout.hidden then
+    configLayout.hidden = true
+    taskLayout.hidden = false
+    workspace:draw()
+  end
 end
 
 configMenu.onTouch = function()
-  configLayout.hidden = false
-  taskLayout.hidden = true
-  workspace:draw()
+  if configLayout.hidden then
+    --load selected recipes
+    configLayout.hidden = false
+    taskLayout.hidden = true
+
+    loadAvailableRecipes()
+    workspace:draw()
+  end
 end
 
 search_input.onInputFinished = function()
@@ -377,10 +386,31 @@ addRecipe_button.onTouch = function()
   addRecipe()
 end
 
+--remove recipe button
+
 ---------------------------------------------------------------------------------
 -- main
 checkComponent()
-loadAllRecipes()
+loadAvailableRecipes()
+--load selected recipes
+
+--flow logic loop, every 10 second?
+
+--ae2 dispatch requests loop
+--checks if any cpu is free
+--loops recipe list
+--checks if recipe needs to be crafted (less than amt and using threshold)
+--check if recipe is already being crafted or any error
+
+--ae2 crafting check loop
+--loops recipe list
+--check if recipe is done crafting or any error
+
+--future craft check function
+--error check function
+
+--store total # of cpu, # of cpu being used, # of crafting, # of qeued to craft, 
+
 
 -- Draw changes on screen after customizing your window
 workspace:draw()

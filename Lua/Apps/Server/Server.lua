@@ -121,6 +121,14 @@ local function updateList()
   end
 end
 
+-- read from table data and populate file data
+local function readDestTable() 
+  destTable = fs.readTable(dataPath)
+  for k, v in ipairs(destTable) do
+    v.data = fs.readTable(v.file) -- populate table data from selected file
+  end
+end
+
 -- update destination table
 local function writeDestTable(data) 
   local result, reason = fs.writeTable(dataPath, data, true)
@@ -143,15 +151,7 @@ local function writeDataTable(path, data)
   end
 end
 
--- read from table data and populate file data
-function readDestTable() 
-  destTable = fs.readTable(dataPath)
-  for k, v in ipairs(destTable) do
-    v.data = fs.readTable(v.file) -- populate table data from selected file
-  end
-end
-
--- retrieve all destinations
+-- retrieve all destinations --*** this function is redundant
 local function getDestinations() 
     if fs.exists(dataPath) then
       readDestTable()

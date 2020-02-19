@@ -1,8 +1,11 @@
 --Author: Duncan Levings
 --Date: 2/17/2020
---Used https://github.com/KaseiFR/ae2-manager as base-line
+--Built upon https://github.com/KaseiFR/ae2-manager
 
 --ToDO:
+-- displaying badges with correct colors on crafting jobs
+-- remove recipe button
+-- edit recipe button
 
 -- Import libraries
 local GUI = require("GUI")
@@ -12,7 +15,7 @@ local fs = require("Filesystem")
 local text = require("Text")
 local net = require("Network")
 local screen = require("Screen")
-local unicode = require('unicode')
+local unicode = require("unicode")
 
 ---------------------------------------------------------------------------------
 -- GUI
@@ -51,7 +54,7 @@ taskLayout:setDirection(1, 1, GUI.DIRECTION_HORIZONTAL)
 taskLayout:setAlignment(1, 1, GUI.ALIGNMENT_HORIZONTAL_LEFT, GUI.ALIGNMENT_VERTICAL_CENTER)
 taskLayout:setMargin(1, 1, 2, 0)
 
-taskLayout:setPosition(1, 1, taskLayout:addChild(GUI.label(1, 1, 10, 1, LIGHT_TEXT, "Label")))
+local statusLabel = taskLayout:setPosition(1, 1, taskLayout:addChild(GUI.label(1, 1, 10, 1, LIGHT_TEXT, "CPU: # free / # total   Recipes  # errors  # ongoing  # queued")))
 
 -- set all row properties
 for i = 2, 8 do
@@ -148,15 +151,51 @@ end
 
 ---------------------------------------------------------------------------------
 -- App variables
+local recipePath = "/Data/savedRecipes.txt"
 local ae2
 local availableRecipes = {}
 local selectedRecipes = {}
 local filteredRecipes = {}
+local status = {}
 local isFiltered = false
+
+-- Control how many CPUs to use. 0 is unlimited, negative to keep some CPU free, between 0 and 1 to reserve a share,
+-- and greater than 1 to allocate a fixed number.
+local allowedCpus = -2
+-- Maximum size of the crafting requests
+local maxBatch = 64
+-- How often to check the AE system, in second
+local fullCheckInterval = 10        -- full scan
+local craftingCheckInterval = 1     -- only check ongoing crafting
 
 ---------------------------------------------------------------------------------
 -- App functions
 
+-- update recipe table
+local function writeRecipes(data) 
+  local result, reason = fs.writeTable(recipePath, data, true)
+  if result == true then
+    -- loadRecipes() -- update
+  else
+    GUI.alert(reason)
+  end
+end
+
+-- read from table data and populate file data
+local function loadRecipes() 
+  if fs.exists(recipePath) then
+    selectedRecipes = fs.readTable(recipePath)
+  else 
+    writeRecipes({}) -- new blank table
+  end
+end
+
+local function updateStatusLabel()
+  statusLabel.text = string.format('CPU: %d free / %d total   Recipes:  %d errors  %d ongoing  %d queued',
+  status.cpu.free, status.cpu.all, status.recipes.error, status.recipes.crafting, status.recipes.queue)
+end
+
+-- reset middle panel
 local function clearDisplay()
   itemName_label.text = ""
   itemStored_label.text = ""
@@ -171,21 +210,21 @@ local function displayItem(type, idx)
     availableRecipes_list.selectedItem = -1
     addRecipe_button.hidden = true
     itemName_label.text = selectedRecipes[idx].label
-    itemStored_label.text = string.format("Stored: %d", math.floor(selectedRecipes[idx].amount))
-    itemWanted_label.text = string.format("Wanted: %d", math.floor(selectedRecipes[idx].wanted))
-    itemThreshold_label.text = string.format("Threshold: %d", math.floor(selectedRecipes[idx].threshold))
+    itemStored_label.text = string.format("Stored: %d", selectedRecipes[idx].stored)
+    itemWanted_label.text = string.format("Wanted: %d", selectedRecipes[idx].wanted)
+    itemThreshold_label.text = string.format("Threshold: %d", selectedRecipes[idx].threshold)
   elseif type == 1 then
     selectedRecipes_list.selectedItem = -1
     addRecipe_button.hidden = false
     itemName_label.text = availableRecipes[idx].label
-    itemStored_label.text = string.format("Stored: %d", math.floor(availableRecipes[idx].amount))
+    itemStored_label.text = string.format("Stored: %d", availableRecipes[idx].stored)
     itemWanted_label.text = ""
     itemThreshold_label.text = ""
   else 
     selectedRecipes_list.selectedItem = -1
     addRecipe_button.hidden = false
     itemName_label.text = filteredRecipes[idx].label
-    itemStored_label.text = string.format("Stored: %d", math.floor(filteredRecipes[idx].amount))
+    itemStored_label.text = string.format("Stored: %d", filteredRecipes[idx].stored)
     itemWanted_label.text = ""
     itemThreshold_label.text = ""
   end
@@ -236,6 +275,25 @@ local function findIndex(recipe)
   return -1
 end
 
+local function filter(array, predicate)
+  local res = {}
+  for _, v in ipairs(array) do
+      if predicate(v) then table.insert(res, v) end
+  end
+  return res
+end
+
+local function contains(haystack, needle)
+  if haystack == needle then return true end
+  if type(haystack) ~= type(needle) or type(haystack) ~= 'table' then return false end
+
+  for k, v in pairs(needle) do
+      if not contains(haystack[k], v) then return false end
+  end
+
+  return true
+end
+
 -- check if AE2 is connected
 local function checkComponent()
   if not component.isAvailable("me_interface") then
@@ -245,13 +303,35 @@ local function checkComponent()
   ae2 = component.get("me_interface")
 end
 
--- load all items that are craftable from AE2 network
-local function loadAvailableRecipes()
+-- return true if recipe is done crafting or was canceled
+function checkFuture(recipe)
+  if not recipe.crafting then return end
 
+  local canceled, err = recipe.crafting.isCanceled()
+  if canceled or err then
+      recipe.crafting = nil
+      recipe.error = err or 'canceled'
+      return true
+  end
+
+  local done, err = recipe.crafting.isDone()
+  if err then recipe.error = err end
+  if done then
+      recipe.crafting = nil
+      return true
+  end
+
+  return false
+end
+
+-- load all items that are craftable from AE2 network
+local function updateRecipes(learnNewRecipes)
+
+  -- index saved recipes
   local index = {}
   for _, recipe in ipairs(selectedRecipes) do
       local key = itemKey(recipe.item, recipe.item.label ~= nil)
-      index[key] = { recipe = recipe, matches = {} }
+      index[key] = { recipe=recipe, matches={} }
   end
 
   -- retrieve all items in network
@@ -261,23 +341,23 @@ local function loadAvailableRecipes()
     workspace:stop()
   end
 
-  -- clear table
-  availableRecipes = {}
+  if learnNewRecipes then availableRecipes = {} end -- clear table if available recipes need to be updated
 
   -- loop returned items and check if they are craftable
   for _, item in ipairs(items) do
     local key = itemKey(item, item.hasTag)
-    local indexed = index[key]
+    local indexed = index[key] -- check if item is already accounted for in saved recipes
+
     if indexed then
-        table.insert(indexed.matches, item)
-    elseif item.isCraftable then
+      table.insert(indexed.matches, item)
+    elseif learnNewRecipes and item.isCraftable then
         local recipe = {
             item = {
                 name = item.name,
                 damage = math.floor(item.damage)
             },
             label = item.label,
-            amount = item.size
+            wanted = 0
         }
         -- GUI.alert(recipe) --debugging
         if item.hasTag then
@@ -286,10 +366,40 @@ local function loadAvailableRecipes()
             recipe.item.label = recipe.label
         end
         table.insert(availableRecipes, recipe)
-        index[key] = { recipe = recipe, matches = { item } }
+        index[key] = { recipe=recipe, matches={item} }
+    end
+  end
+
+  -- Check the recipes
+  for _, entry in pairs(index) do
+    local recipe = entry.recipe
+    local matches = filter(entry.matches, function(e) return contains(e, recipe.item) end)
+    local craftable = false
+    recipe.error = nil
+
+    checkFuture(recipe)
+
+    if #matches == 0 then
+        recipe.stored = 0
+    elseif #matches == 1 then
+        local item = matches[1]
+        recipe.stored = math.floor(item.size)
+        craftable = item.isCraftable
+    else
+        local id = recipe.item.name .. ':' .. recipe.item.damage
+        recipe.stored = 0
+        recipe.error = id .. ' match ' .. #matches .. ' items'
     end
 
-    updateAvailableRecipeList(availableRecipes, 1)
+    if not recipe.error and recipe.wanted > 0 and not craftable then
+        -- Warn the user as soon as an item is not craftable rather than wait to try
+        recipe.error = 'Not craftable'
+    end
+  end
+
+  if learnNewRecipes then
+    writeRecipes(selectedRecipes)
+    updateAvailableRecipeList(availableRecipes, 1) --update right panel
   end
 end
 
@@ -314,23 +424,16 @@ local function addRecipe()
         table.remove(availableRecipes, availableRecipes_list.selectedItem)
       end
       
-      recipe.wanted = tonumber(amount.text)
-      recipe.threshold = tonumber(threshold.text)
-      -- GUI.alert(recipe) --debugging
-
-      -- update left panel list
+      recipe.wanted = math.floor(tonumber(amount.text))
+      recipe.threshold = math.floor(tonumber(threshold.text))
       table.insert(selectedRecipes, recipe)
-      updateSelectedRecipeList()
-
-      -- save to table
-      -- writeDestTable(destTable)
-
-      -- reset right panel
-      updateAvailableRecipeList(availableRecipes, 1)
-      -- reset center display
-      clearDisplay()
-      -- remove container
-      container:remove()
+      -- GUI.alert(recipe) --debugging
+      
+      writeRecipes(selectedRecipes) -- save to table
+      updateSelectedRecipeList() -- update left panel list
+      updateAvailableRecipeList(availableRecipes, 1) -- reset right panel
+      clearDisplay() -- reset center display
+      container:remove() -- remove container
     else 
       GUI.alert("Missing/Invalid Input!")
     end
@@ -351,9 +454,120 @@ local function filterAvailableRecipes()
     updateAvailableRecipeList(filteredRecipes, 2)
   else --reload all available
     isFiltered = false
-    loadAvailableRecipes()
+    updateRecipes(true)
   end
   clearDisplay()
+end
+
+-- checks CPU status
+local function enoughCpus(available, ongoing, free)
+  if free == 0 then return false end
+  if ongoing == 0 then return true end
+  if allowedCpus == 0 then return true end
+  if allowedCpus > 0 and allowedCpus < 1 then
+      return  (ongoing + 1) / available <= allowedCpus
+  end
+  if allowedCpus >= 1 then
+      return ongoing < allowedCpus
+  end
+  if allowedCpus > -1 then
+      return (free - 1) / available <= -allowedCpus
+  end
+  return free > -allowedCpus
+end
+
+-- checks if any CPU are available
+local function hasFreeCpu()
+  local cpus = ae2.getCpus()
+  local free = 0
+  for i, cpu in ipairs(cpus) do
+      if not cpu.busy then free = free + 1 end
+  end
+  local ongoing = 0
+  for _, recipe in ipairs(selectedRecipes) do
+      if recipe.crafting then ongoing = ongoing + 1 end
+  end
+
+  if enoughCpus(#cpus, ongoing, free) then
+      return true
+  else
+      return false
+  end
+end
+
+local function findRecipeWork()
+  for _, recipe in ipairs(selectedRecipes) do
+      if recipe.error or recipe.crafting then goto continue end
+
+      local needed = recipe.wanted - recipe.stored
+      if needed <= (recipe.wanted - recipe.threshold) then goto continue end --check if needed is below set threshold
+      if needed <= 0 then goto continue end
+
+      local craftables, err = ae2.getCraftables(recipe.item)
+      if err then
+          recipe.error = 'ae2.getCraftables ' .. tostring(err)
+      elseif #craftables == 0 then
+          recipe.error = 'No crafting pattern found'
+      elseif #craftables == 1 then
+          coroutine.yield(recipe, needed, craftables[1])
+      else
+          recipe.error = 'Multiple crafting patterns'
+      end
+
+      ::continue::
+  end
+end
+
+function updateStatus(duration)
+
+  -- CPU data
+  local cpus = ae2.getCpus()
+  status.cpu = {
+      all = #cpus,
+      free = 0,
+  }
+  for _, cpu in ipairs(cpus) do
+      status.cpu.free = status.cpu.free + (cpu.busy and 0 or 1)
+  end
+
+  -- Recipe stats
+  status.recipes = {
+      error = 0,
+      crafting = 0,
+      queue = 0,
+  }
+  for _, recipe in ipairs(selectedRecipes) do
+      if recipe.error then
+          status.recipes.error = status.recipes.error + 1
+      elseif recipe.crafting then
+          status.recipes.crafting = status.recipes.crafting + 1
+      elseif (recipe.stored or 0) < (recipe.wanted or 0) then
+          status.recipes.queue = status.recipes.queue + 1
+      end
+  end
+
+  updateStatusLabel()
+end
+
+-- main loop function
+function ae2Run(learnNewRecipes)
+  updateRecipes(learnNewRecipes)
+
+  local finder = coroutine.create(findRecipeWork)
+  while hasFreeCpu() do
+      local _, recipe, needed, craft = coroutine.resume(finder) -- finds any work dispatches until all CPUs are used
+      if recipe then
+          -- Request crafting
+          local amount = math.min(needed, maxBatch)
+          recipe.crafting = craft.request(amount)
+          checkFuture(recipe) -- might fail very quickly (missing resource, ...)
+      else
+          break
+      end
+  end
+
+  updateStatus()
+  workspace:draw()
 end
 
 ---------------------------------------------------------------------------------
@@ -373,7 +587,8 @@ configMenu.onTouch = function()
     configLayout.hidden = false
     taskLayout.hidden = true
 
-    loadAvailableRecipes()
+    updateRecipes(true)
+    updateSelectedRecipeList()
     workspace:draw()
   end
 end
@@ -391,27 +606,22 @@ end
 ---------------------------------------------------------------------------------
 -- main
 checkComponent()
-loadAvailableRecipes()
---load selected recipes
+loadRecipes() --load selected recipes
 
---flow logic loop, every 10 second?
+-- checks if any recipes have finished crafting or was cancelled to force main loop call
+event.addHandler(function()
+  for _, recipe in ipairs(selectedRecipes) do
+    if checkFuture(recipe) then
+      ae2Run(false)
+      return
+    end
+  end
+end, craftingCheckInterval)
 
---ae2 dispatch requests loop
---checks if any cpu is free
---loops recipe list
---checks if recipe needs to be crafted (less than amt and using threshold)
---check if recipe is already being crafted or any error
+-- main loop
+event.addHandler(function(e1)
+  ae2Run(false)
+end, fullCheckInterval)
 
---ae2 crafting check loop
---loops recipe list
---check if recipe is done crafting or any error
-
---future craft check function
---error check function
-
---store total # of cpu, # of cpu being used, # of crafting, # of qeued to craft, 
-
-
--- Draw changes on screen after customizing your window
 workspace:draw()
 workspace:start()

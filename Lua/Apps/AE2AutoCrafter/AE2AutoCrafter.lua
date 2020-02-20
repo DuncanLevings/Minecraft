@@ -1,15 +1,13 @@
 --Author: Duncan Levings
 --Date: 2/17/2020
---Built upon https://github.com/KaseiFR/ae2-manager
+--Used https://github.com/KaseiFR/ae2-manager as base-line
 
 --ToDO:
--- displaying badges with correct colors on crafting jobs
--- remove recipe button
--- edit recipe button
 
 -- Import libraries
 local GUI = require("GUI")
-local system = require("System")
+local computer = require("computer")
+local component = require("component")
 local event = require("Event")
 local fs = require("Filesystem")
 local text = require("Text")
@@ -23,6 +21,8 @@ local badgeCells = {}
 local BACKGROUND = 0x2D2D2D
 local FOREGROUND = 0xE1E1E1
 local BASE_BADGE = 0xB4B4B4
+local BADGE_CRAFTING = 0x3366CC
+local BADGE_ERROR = 0xCC0000
 local LIST_ALTERNATE = 0xD2D2D2
 local LIST_SELECTED = 0x3366CC
 local ADD_BUTTON = 0x33B640
@@ -44,8 +44,8 @@ local yMenuOffset = menu.height + 1
 
 -- Tasks window-------------------------------
 
--- 1 col - 8 row
-local taskLayout = workspace:addChild(GUI.layout(1, yMenuOffset, workspace.width, windowHeight, 1, 8))
+-- 1 col - 2 row
+local taskLayout = workspace:addChild(GUI.layout(1, yMenuOffset, workspace.width, windowHeight, 1, 2))
 -- taskLayout.showGrid = true -- for debugging
 
 -- status row
@@ -54,53 +54,20 @@ taskLayout:setDirection(1, 1, GUI.DIRECTION_HORIZONTAL)
 taskLayout:setAlignment(1, 1, GUI.ALIGNMENT_HORIZONTAL_LEFT, GUI.ALIGNMENT_VERTICAL_CENTER)
 taskLayout:setMargin(1, 1, 2, 0)
 
+taskLayout:setRowHeight(2, GUI.SIZE_POLICY_ABSOLUTE, 46)
+
 local statusLabel = taskLayout:setPosition(1, 1, taskLayout:addChild(GUI.label(1, 1, 10, 1, LIGHT_TEXT, "CPU: # free / # total   Recipes  # errors  # ongoing  # queued")))
 
+-- 1 col - 7 row
+local badgeLayout = taskLayout:setPosition(1, 2, taskLayout:addChild(GUI.layout(1, 1, taskLayout.width, taskLayout.height - 3, 1, 7)))
+-- badgeLayout.showGrid = true -- for debugging
+
 -- set all row properties
-for i = 2, 8 do
-  taskLayout:setRowHeight(i, GUI.SIZE_POLICY_ABSOLUTE, 6) -- row
-  taskLayout:setDirection(1, i, GUI.DIRECTION_HORIZONTAL) -- col - row
-  taskLayout:setAlignment(1, i, GUI.ALIGNMENT_HORIZONTAL_LEFT, GUI.ALIGNMENT_VERTICAL_CENTER) -- col - row
-  taskLayout:setMargin(1, i, 2, 0) -- col - row
-end
-
--- recalculate positions of children for layout
-local function updateBadgePositions() 
-  local row = 2
-  local amt = 0
-  for i = 1, #badgeCells do
-    if amt == 4 then
-      row = row + 1
-      amt = 0
-    end
-    taskLayout:setPosition(1, row, taskLayout.children[i + 3]) --skip first row children
-    amt = amt + 1
-  end
-  
-  workspace:draw()
-end
-
--- add new badge container
-local function addTaskBadge()
-  local task = taskLayout:setPosition(1, 2, taskLayout:addChild(GUI.container(1, 1, 38, 5)))
-  task:addChild(GUI.panel(1, 1, task.width, task.height, BASE_BADGE))
-  task:addChild(GUI.label(2, 2, 10, 1, 0x0, "Long Item name test"))
-  task:addChild(GUI.label(2, 3, 10, 1, 0x0, "1000 / 4000"))
-  task:addChild(GUI.label(2, 4, 10, 1, 0x0, "error..."))
-
-  table.insert(badgeCells, task)
-  updateBadgePositions()
-  return task
-end
-
--- remove badge
-local function removeTaskBadge(idx)
-  if idx <= #badgeCells then
-    badgeCells[idx]:remove()
-    table.remove(badgeCells, idx)
-  end
-
-  updateBadgePositions()
+for i = 1, 7 do
+  badgeLayout:setRowHeight(i, GUI.SIZE_POLICY_ABSOLUTE, 6) -- row
+  badgeLayout:setDirection(1, i, GUI.DIRECTION_HORIZONTAL) -- col - row
+  badgeLayout:setAlignment(1, i, GUI.ALIGNMENT_HORIZONTAL_LEFT, GUI.ALIGNMENT_VERTICAL_CENTER) -- col - row
+  badgeLayout:setMargin(1, i, 2, 0) -- col - row
 end
 
 -- Config window-----------------------------------
@@ -133,7 +100,10 @@ local itemThreshold_label = infoContainer:addChild(GUI.label(1, 9, infoContainer
 
 local addRecipe_button = infoContainer:addChild(GUI.button(11, 40, 29, 3, ADD_BUTTON, DARK_TEXT, ADD_BUTTON, LIGHT_TEXT, "Add Recipe"))
 addRecipe_button.hidden = true
--- infoContainer:addChild(GUI.input(15, 7, 20, 3, 0xEEEEEEE, DARK_TEXT, 0x999999, LIGHT_TEXT, 0x2D2D2D, "", "Desired Amount"))
+local editRecipe_button = infoContainer:addChild(GUI.button(11, 35, 29, 3, ADD_BUTTON, DARK_TEXT, ADD_BUTTON, LIGHT_TEXT, "Edit Recipe"))
+editRecipe_button.hidden = true
+local removeRecipe_button = infoContainer:addChild(GUI.button(11, 40, 29, 3, BADGE_ERROR, DARK_TEXT, BADGE_ERROR, LIGHT_TEXT, "Remove Recipe"))
+removeRecipe_button.hidden = true
 
 -- right list panel
 local search_input = configLayout:setPosition(3, 2, configLayout:addChild(GUI.input(1, 1, 50, 3, 0xEEEEEEE, 0x555555, 0x999999, 0xFFFFFF, 0x2D2D2D, "", "Enter Item Name")))
@@ -143,10 +113,25 @@ availableRecipes_list.selectedItem = -1
 local function add_Container()
   local container = GUI.addBackgroundContainer(workspace, true, true, "Add Recipe")
   local amount = container.layout:addChild(GUI.input(1, 1, 30, 3, 0xEEEEEEE, 0x555555, 0x999999, 0xFFFFFF, 0x2D2D2D, "", "Enter Wanted Amount"))
-  local threshold = container.layout:addChild(GUI.input(1, 1, 30, 3, 0xEEEEEEE, 0x555555, 0x999999, 0xFFFFFF, 0x2D2D2D, "0", "Enter Threshold Amount"))
+  local threshold = container.layout:addChild(GUI.input(1, 1, 30, 3, 0xEEEEEEE, 0x555555, 0x999999, 0xFFFFFF, 0x2D2D2D, "0", "Enter Threshold Amount", true))
   local submit = container.layout:addChild(GUI.button(1, 1, 10, 3, ADD_BUTTON, DARK_TEXT, ADD_BUTTON, LIGHT_TEXT, "Confirm"))
 
   return container, amount, threshold, submit
+end
+
+local function edit_Container(amount, threshold)
+  local container = GUI.addBackgroundContainer(workspace, true, true, "Edit Recipe")
+  local amount = container.layout:addChild(GUI.input(1, 1, 30, 3, 0xEEEEEEE, 0x555555, 0x999999, 0xFFFFFF, 0x2D2D2D, amount, "Enter Wanted Amount"))
+  local threshold = container.layout:addChild(GUI.input(1, 1, 30, 3, 0xEEEEEEE, 0x555555, 0x999999, 0xFFFFFF, 0x2D2D2D, threshold, "Enter Threshold Amount"))
+  local submit = container.layout:addChild(GUI.button(1, 1, 10, 3, ADD_BUTTON, DARK_TEXT, ADD_BUTTON, LIGHT_TEXT, "Confirm"))
+
+  return container, amount, threshold, submit
+end
+
+local function remove_Container(name)
+  local container = GUI.addBackgroundContainer(workspace, true, true, "Confirm Remove")
+  local submit = container.layout:addChild(GUI.button(1, 1, 30, 3, 0xCC0000, 0x0F0F0F, 0xFF0000, 0x0F0F0F, string.format("Remove %s", name)))
+  return container, submit
 end
 
 ---------------------------------------------------------------------------------
@@ -170,6 +155,48 @@ local craftingCheckInterval = 1     -- only check ongoing crafting
 
 ---------------------------------------------------------------------------------
 -- App functions
+
+-- recalculate positions of children for layout
+local function updateBadgePositions(badges) 
+  local row = 1
+  local amt = 0
+  for i = 1, badges do
+    if amt == 4 then
+      row = row + 1
+      amt = 0
+    end
+    badgeLayout:setPosition(1, row, badgeLayout.children[i]) --skip first row children
+    amt = amt + 1
+  end
+  
+  workspace:draw()
+end
+
+-- add new badge container
+local function drawTaskBadges()
+  badgeLayout.children = {}
+  local badges = 0
+  for _, recipe in ipairs(selectedRecipes) do
+    local color =
+    recipe.error and BADGE_ERROR or
+            recipe.crafting and BADGE_CRAFTING or
+            (recipe.stored or 0) < recipe.wanted and BASE_BADGE
+
+    if color then
+        local badge = badgeLayout:setPosition(1, 1, badgeLayout:addChild(GUI.container(1, 1, 38, 5)))
+        badge:addChild(GUI.panel(1, 1, badge.width, badge.height, BASE_BADGE))
+        badge:addChild(GUI.label(2, 2, 10, 1, DARK_TEXT, recipe.label))
+        badge:addChild(GUI.label(2, 3, 10, 1, DARK_TEXT, string.format('%s / %s', recipe.stored or '?', recipe.wanted)))
+        if recipe.error then
+          badge:addChild(GUI.label(2, 4, 10, 1, DARK_TEXT, tostring(recipe.error)))
+        end
+
+        badges = badges + 1
+    end
+  end
+  
+  updateBadgePositions(badges)
+end
 
 -- update recipe table
 local function writeRecipes(data) 
@@ -202,6 +229,8 @@ local function clearDisplay()
   itemWanted_label.text = ""
   itemThreshold_label.text = ""
   addRecipe_button.hidden = true
+  editRecipe_button.hidden = true
+  removeRecipe_button.hidden = true
 end
 
 -- type 0 = left panel, 1 = right panel (non filtered), 2 = right panel (filtered)
@@ -209,6 +238,8 @@ local function displayItem(type, idx)
   if type == 0 then
     availableRecipes_list.selectedItem = -1
     addRecipe_button.hidden = true
+    editRecipe_button.hidden = false
+    removeRecipe_button.hidden = false
     itemName_label.text = selectedRecipes[idx].label
     itemStored_label.text = string.format("Stored: %d", selectedRecipes[idx].stored)
     itemWanted_label.text = string.format("Wanted: %d", selectedRecipes[idx].wanted)
@@ -216,6 +247,8 @@ local function displayItem(type, idx)
   elseif type == 1 then
     selectedRecipes_list.selectedItem = -1
     addRecipe_button.hidden = false
+    editRecipe_button.hidden = true
+    removeRecipe_button.hidden = true
     itemName_label.text = availableRecipes[idx].label
     itemStored_label.text = string.format("Stored: %d", availableRecipes[idx].stored)
     itemWanted_label.text = ""
@@ -223,6 +256,8 @@ local function displayItem(type, idx)
   else 
     selectedRecipes_list.selectedItem = -1
     addRecipe_button.hidden = false
+    editRecipe_button.hidden = true
+    removeRecipe_button.hidden = true
     itemName_label.text = filteredRecipes[idx].label
     itemStored_label.text = string.format("Stored: %d", filteredRecipes[idx].stored)
     itemWanted_label.text = ""
@@ -398,13 +433,12 @@ local function updateRecipes(learnNewRecipes)
   end
 
   if learnNewRecipes then
-    writeRecipes(selectedRecipes)
     updateAvailableRecipeList(availableRecipes, 1) --update right panel
   end
 end
 
 local function addRecipe()
-  container, amount, threshold, submit = add_Container()
+  local container, amount, threshold, submit = add_Container()
 
   submit.onTouch = function()
     if #amount.text > 0 and tonumber(amount.text) ~= nil and #threshold.text > 0 and tonumber(threshold.text) ~= nil then
@@ -437,6 +471,39 @@ local function addRecipe()
     else 
       GUI.alert("Missing/Invalid Input!")
     end
+  end
+end
+
+local function editRecipe()
+  local recipe = selectedRecipes[selectedRecipes_list.selectedItem]
+  local container, amount, threshold, submit = edit_Container(recipe.wanted, recipe.threshold)
+
+  submit.onTouch = function()
+    if tonumber(amount.text) ~= nil and tonumber(threshold.text) ~= nil then
+      recipe.wanted = math.floor(tonumber(amount.text))
+      recipe.threshold = math.floor(tonumber(threshold.text))
+      -- GUI.alert(recipe) --debugging
+      
+      writeRecipes(selectedRecipes) -- save to table
+      clearDisplay() -- reset center display
+      container:remove() -- remove container
+    else 
+      GUI.alert("Missing/Invalid Input!")
+    end
+  end
+end
+
+local function removeRecipe()
+  local recipe = selectedRecipes[selectedRecipes_list.selectedItem]
+  local container, submit = remove_Container(recipe.label)
+
+  submit.onTouch = function()
+    table.remove(selectedRecipes, selectedRecipes_list.selectedItem)
+    updateRecipes(true)
+    writeRecipes(selectedRecipes) -- save to table
+    updateSelectedRecipeList() -- update left panel list
+    clearDisplay() -- reset center display
+    container:remove()
   end
 end
 
@@ -503,6 +570,7 @@ local function findRecipeWork()
       if needed <= (recipe.wanted - recipe.threshold) then goto continue end --check if needed is below set threshold
       if needed <= 0 then goto continue end
 
+      event.sleep(1)
       local craftables, err = ae2.getCraftables(recipe.item)
       if err then
           recipe.error = 'ae2.getCraftables ' .. tostring(err)
@@ -556,16 +624,19 @@ function ae2Run(learnNewRecipes)
   local finder = coroutine.create(findRecipeWork)
   while hasFreeCpu() do
       local _, recipe, needed, craft = coroutine.resume(finder) -- finds any work dispatches until all CPUs are used
+
       if recipe then
           -- Request crafting
           local amount = math.min(needed, maxBatch)
           recipe.crafting = craft.request(amount)
+          event.sleep(1)
           checkFuture(recipe) -- might fail very quickly (missing resource, ...)
       else
           break
       end
   end
 
+  drawTaskBadges()
   updateStatus()
   workspace:draw()
 end
@@ -601,7 +672,13 @@ addRecipe_button.onTouch = function()
   addRecipe()
 end
 
---remove recipe button
+editRecipe_button.onTouch = function()
+  editRecipe()
+end
+
+removeRecipe_button.onTouch = function()
+  removeRecipe()
+end
 
 ---------------------------------------------------------------------------------
 -- main

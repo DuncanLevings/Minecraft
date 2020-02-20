@@ -4,6 +4,7 @@
 
 --ToDO:
 --allow editing config params
+--fix color not showing for badge display
 
 -- Import libraries
 local GUI = require("GUI")

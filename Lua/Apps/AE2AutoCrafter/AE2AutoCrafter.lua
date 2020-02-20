@@ -3,6 +3,7 @@
 --Used https://github.com/KaseiFR/ae2-manager as base-line
 
 --ToDO:
+--allow editing config params
 
 -- Import libraries
 local GUI = require("GUI")
@@ -148,7 +149,7 @@ local isFiltered = false
 -- and greater than 1 to allocate a fixed number.
 local allowedCpus = -2
 -- Maximum size of the crafting requests
-local maxBatch = 64
+local maxBatch = 1024
 -- How often to check the AE system, in second
 local fullCheckInterval = 10        -- full scan
 local craftingCheckInterval = 1     -- only check ongoing crafting

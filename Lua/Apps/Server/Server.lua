@@ -7,6 +7,7 @@
 --time duration between sent
 --status only toggle
 --possibly need to ration out the requests if list gets large
+--should use "status only" data for sending
 
 -- Import libraries
 local GUI = require("GUI")

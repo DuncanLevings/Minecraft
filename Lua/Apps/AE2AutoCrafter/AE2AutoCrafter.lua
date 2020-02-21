@@ -148,7 +148,7 @@ local isFiltered = false
 -- and greater than 1 to allocate a fixed number.
 local allowedCpus = -2
 -- Maximum size of the crafting requests
-local maxBatch = 64
+local maxBatch = 10240
 -- How often to check the AE system, in second
 local fullCheckInterval = 10        -- full scan
 local craftingCheckInterval = 1     -- only check ongoing crafting
@@ -184,7 +184,7 @@ local function drawTaskBadges()
 
     if color then
         local badge = badgeLayout:setPosition(1, 1, badgeLayout:addChild(GUI.container(1, 1, 38, 5)))
-        badge:addChild(GUI.panel(1, 1, badge.width, badge.height, BASE_BADGE))
+        badge:addChild(GUI.panel(1, 1, badge.width, badge.height, color))
         badge:addChild(GUI.label(2, 2, 10, 1, DARK_TEXT, recipe.label))
         badge:addChild(GUI.label(2, 3, 10, 1, DARK_TEXT, string.format('%s / %s', recipe.stored or '?', recipe.wanted)))
         if recipe.error then

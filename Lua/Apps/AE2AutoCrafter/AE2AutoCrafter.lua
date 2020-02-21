@@ -3,6 +3,8 @@
 --Used https://github.com/KaseiFR/ae2-manager as base-line
 
 --ToDO:
+--allow editing config params
+--fix color not showing for badge display
 
 -- Import libraries
 local GUI = require("GUI")

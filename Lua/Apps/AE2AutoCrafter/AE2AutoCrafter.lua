@@ -572,7 +572,6 @@ local function findRecipeWork()
       if needed <= (recipe.wanted - recipe.threshold) then goto continue end --check if needed is below set threshold
       if needed <= 0 then goto continue end
 
-      event.sleep(1)
       local craftables, err = ae2.getCraftables(recipe.item)
       if err then
           recipe.error = 'ae2.getCraftables ' .. tostring(err)
@@ -631,7 +630,6 @@ function ae2Run(learnNewRecipes)
           -- Request crafting
           local amount = math.min(needed, maxBatch)
           recipe.crafting = craft.request(amount)
-          event.sleep(1)
           checkFuture(recipe) -- might fail very quickly (missing resource, ...)
       else
           break

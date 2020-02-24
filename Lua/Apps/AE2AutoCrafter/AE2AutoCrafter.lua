@@ -3,8 +3,7 @@
 --Used https://github.com/KaseiFR/ae2-manager as base-line
 
 --ToDO:
---allow editing config params
---fix color not showing for badge display
+-- allow editing of config params
 
 -- Import libraries
 local GUI = require("GUI")
@@ -182,7 +181,7 @@ local function drawTaskBadges()
     local color =
     recipe.error and BADGE_ERROR or
             recipe.crafting and BADGE_CRAFTING or
-            (recipe.stored or 0) < recipe.wanted and BASE_BADGE
+            (recipe.stored or 0) < recipe.threshold and BASE_BADGE
 
     if color then
         local badge = badgeLayout:setPosition(1, 1, badgeLayout:addChild(GUI.container(1, 1, 38, 5)))
@@ -572,7 +571,6 @@ local function findRecipeWork()
       if needed <= (recipe.wanted - recipe.threshold) then goto continue end --check if needed is below set threshold
       if needed <= 0 then goto continue end
 
-      event.sleep(1)
       local craftables, err = ae2.getCraftables(recipe.item)
       if err then
           recipe.error = 'ae2.getCraftables ' .. tostring(err)
@@ -611,7 +609,7 @@ function updateStatus(duration)
           status.recipes.error = status.recipes.error + 1
       elseif recipe.crafting then
           status.recipes.crafting = status.recipes.crafting + 1
-      elseif (recipe.stored or 0) < (recipe.wanted or 0) then
+      elseif (recipe.stored or 0) < (recipe.threshold or 0) then
           status.recipes.queue = status.recipes.queue + 1
       end
   end
@@ -631,7 +629,6 @@ function ae2Run(learnNewRecipes)
           -- Request crafting
           local amount = math.min(needed, maxBatch)
           recipe.crafting = craft.request(amount)
-          event.sleep(1)
           checkFuture(recipe) -- might fail very quickly (missing resource, ...)
       else
           break

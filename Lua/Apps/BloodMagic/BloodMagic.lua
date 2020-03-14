@@ -101,9 +101,11 @@ local slates = {}       --stores slate type and storage slot index
 local slateResourceSlot --storage slot for resource needed to craft slate
 
 --values
-local bloodLevel = 0    --level of blood in altar
+local bloodLevel = 0    --level of blood in altar (percentage out of 100)
 local bloodMax = 0      --max level of blood allowed in altar
-local que = {}              --stores all requested crafts
+local que = {}          --stores all requested crafts
+local bloodProducing = false
+local override = false
 
 local craftingHandler
 
@@ -133,6 +135,7 @@ local function getTransposers()
     for index, value in ipairs(redstone.getInput()) do
         if value > 0 then
             toggleBlood.switch:setState(true)
+            override = true
         end
     end
 
@@ -203,8 +206,8 @@ local function getSlateSlots()
 end
 
 local function updateBloodLevel()
-    local amount = (altarTransposer.getTankLevel(altarSide, 1) / bloodMax) * 100
-    bloodBar.value = math.floor(amount)
+    bloodLevel = (altarTransposer.getTankLevel(altarSide, 1) / bloodMax) * 100
+    bloodBar.value = math.floor(bloodLevel)
 end
 
 local function storedText(side, slot)
@@ -326,6 +329,24 @@ local function craftRequest(type)
     end
 end
 
+--acts as a NOR latch to turn blood production on/off
+local function checkBlood()
+    --only check if blood production switch is on
+    if override then
+        if bloodProducing == false and bloodLevel < 25 then
+            bloodProducing = true
+            redstone.setOutput({15, 15, 15, 15, 15, 15}) --redstone on
+        end
+        if bloodProducing and bloodLevel > 95 then
+            bloodProducing = false
+            redstone.setOutput({0, 0, 0, 0, 0, 0})      --redstone off
+        end
+    else
+        redstone.setOutput({0, 0, 0, 0, 0, 0})      --redstone off
+        bloodProducing = false
+    end
+end
+
 ---------------------------------------------------------------------------------
 -- event handles
 
@@ -338,9 +359,9 @@ end
 
 toggleBlood.switch.onStateChanged = function()
     if toggleBlood.switch.state then
-        redstone.setOutput({15, 15, 15, 15, 15, 15}) --redstone on
+        override = true
     else
-        redstone.setOutput({0, 0, 0, 0, 0, 0})      --redstone off
+        override = false
     end
 end
 
@@ -372,11 +393,13 @@ getSlateSlots()
 moveOrb(true)
 updateBloodLevel()
 updateSlateText()
+checkBlood()
 
 -- main loop
 event.addHandler(function()
     updateSlateText()
     updateBloodLevel()
+    checkBlood()
 end, fullCheckInterval)
 
 -- Draw changes on screen after customizing your window

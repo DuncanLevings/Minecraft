@@ -278,19 +278,21 @@ local function craftRequest(type)
             --check if wanted amount of slate resource is available
             local available = storageTransposer.getSlotStackSize(storageSide, slateResourceSlot)
             local requested = tonumber(amount.text)
+
+            --check if slate resource is available
             if requested > available then
                 GUI.alert(string.format("Not enough %s available!", SLATE_RESOURCE))
+            else
+                local requestedCraft = {
+                    type = type,
+                    amount = requested,
+                    crafting = false
+                }
+                table.insert(que, requestedCraft)
+                
+                --start crafting loop
+                startCrafting()
             end
-
-            local requestedCraft = {
-                type = type,
-                amount = requested,
-                crafting = false
-            }
-            table.insert(que, requestedCraft)
-            
-            --start crafting loop
-            startCrafting()
 
             container:remove() -- remove container
         else 

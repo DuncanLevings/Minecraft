@@ -94,6 +94,7 @@ local storageSide       --side of storage controller
 local altarSide         --side of altar
 local outputSide        --storage for completed slates
 local inputSide         --storage for livingstone
+local orbSide           --storage for orb
 
 --slots
 local slates = {}       --stores slate type and storage slot index
@@ -152,6 +153,8 @@ local function getTransposers()
                     inputSide = i
                 elseif name == "minecraft:chest" then
                     outputSide = i
+                elseif name == "minecraft:trapped_chest" then
+                    orbSide = i
                 end
             end
         end
@@ -171,6 +174,10 @@ local function getTransposers()
     end
     if outputSide == nil then
         GUI.alert("No ouput chest found!")
+        workspace:stop()
+    end
+    if orbSide == nil then
+        GUI.alert("No orb trapped chest found!")
         workspace:stop()
     end
 end
@@ -231,6 +238,22 @@ local function updateStatus()
     workspace:draw()
 end
 
+--moves orb in/out of altar
+local function moveOrb(force)
+    local item = altarTransposer.getStackInSlot(altarSide, 1)
+    --only store orb in altar if force is true
+    if force then
+        if item == nil then
+            altarTransposer.transferItem(orbSide, altarSide)
+        end
+    else
+        --only remove from atlar if item is orb
+        if item and string.find(item.label, "Orb") then
+            altarTransposer.transferItem(altarSide, orbSide)
+        end
+    end
+end
+
 local function checkAltarCraft()
     local item = altarTransposer.getStackInSlot(altarSide, 1)
     if item ~= nil then
@@ -259,11 +282,13 @@ local function altarCrafting()
     else
         --all crafting que cleared
         event.removeHandler(craftingHandler)
+        moveOrb(true)
     end
 end
 
 --main crafting loop
 local function startCrafting()
+    moveOrb(false)
     craftingHandler = event.addHandler(function()
         altarCrafting()
         updateStatus()
@@ -344,6 +369,7 @@ end
 
 getTransposers()
 getSlateSlots()
+moveOrb(true)
 updateBloodLevel()
 updateSlateText()
 

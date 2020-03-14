@@ -2,17 +2,6 @@
 --Date: 3/13/2020
 
 --TODO:
---clicking craft will open modal for amount wanted
---then send stone to inventory
---and set current crafting slate to wanted one
---if aditional are clicked, add to table que
---keep checking for x slate till x is in storage then 
---more to next que if there are any
---update status crafting text
-
---2 loops, one to check inventory amounts
---(only active while crafting?) to check item in altar to extract
---2nd loop will need to update very often for fast slate crafting
 
 -- Import libraries
 local GUI = require("GUI")
@@ -78,30 +67,51 @@ bloodLayout:setRowHeight(1, GUI.SIZE_POLICY_ABSOLUTE, 3)
 bloodLayout:setRowHeight(2, GUI.SIZE_POLICY_ABSOLUTE, 3)
 bloodLayout:setRowHeight(3, GUI.SIZE_POLICY_ABSOLUTE, 8)
 
-local statusLabel = bloodLayout:setPosition(1, 1, bloodLayout:addChild(GUI.label(1, 1, 29, 1, LIGHT_TEXT, "Current Task: -  Amount: 0")))
+local statusLabel = bloodLayout:setPosition(1, 1, bloodLayout:addChild(GUI.label(1, 1, 140, 1, LIGHT_TEXT, "Current Task: -  Amount: 0   Que: 0")):setAlignment(GUI.ALIGNMENT_HORIZONTAL_CENTER, GUI.ALIGNMENT_VERTICAL_CENTER))
 local toggleBlood = bloodLayout:setPosition(1, 2, bloodLayout:addChild(GUI.switchAndLabel(1, 1, 29, 8, FOREGROUND, DARK_TEXT, LIGHT_TEXT, LIGHT_TEXT, "Blood Production:", false)))
 local bloodBar = bloodLayout:setPosition(1, 3, bloodLayout:addChild(GUI.progressBar(1, 1, 140, LIGHT_TEXT, FOREGROUND, LIGHT_TEXT, 0, false, true, "Blood: ", "%")))
+
+local function craftContainer()
+    local container = GUI.addBackgroundContainer(workspace, true, true, "Craft Slate")
+    local amount = container.layout:addChild(GUI.input(1, 1, 29, 3, 0xEEEEEEE, 0x555555, 0x999999, 0xFFFFFF, 0x2D2D2D, "1", "Enter Wanted Amount"))
+    local submit = container.layout:addChild(GUI.button(1, 1, 9, 3, FOREGROUND, LIGHT_TEXT, FOREGROUND, LIGHT_TEXT_PRESSED, "Confirm"))
+  
+    return container, amount, submit
+  end
 
 ---------------------------------------------------------------------------------
 -- App variables
 local fullCheckInterval = 5        -- full check
 local craftingCheckInterval = 1     -- check ongoing crafting
+
+--transposers
 local storageTransposer     --storage controller
 local altarTransposer       --blood magic altar
 local redstone          --mob farm light control
+
+--sides
 local storageSide       --side of storage controller
 local altarSide         --side of altar
 local outputSide        --storage for completed slates
 local inputSide         --storage for livingstone
-local bloodLevel = 0
-local bloodMax = 0
-local slates = {}
-local currentCrafting = {}   --stores current crafting type as array table
+
+--slots
+local slates = {}       --stores slate type and storage slot index
+local slateResourceSlot --storage slot for resource needed to craft slate
+
+--values
+local bloodLevel = 0    --level of blood in altar
+local bloodMax = 0      --max level of blood allowed in altar
+local que = {}              --stores all requested crafts
+
+local craftingHandler
+
 local BLANK = "Blank Slate"
 local REIN = "Reinforced Slate"
 local IMBUED = "Imbued Slate"
 local DEMON = "Demonic Slate"
 local ETH = "Ethereal Slate"
+local SLATE_RESOURCE = "Livingrock"
 
 ---------------------------------------------------------------------------------
 -- App functions
@@ -179,6 +189,8 @@ local function getSlateSlots()
             slates[DEMON] = index
         elseif value.label == ETH then
             slates[ETH] = index
+        elseif value.label == SLATE_RESOURCE then
+            slateResourceSlot = index
         end
     end
 end
@@ -209,13 +221,92 @@ local function updateSlateText()
     workspace:draw()
 end
 
+local function updateStatus()
+    if #que > 0 then
+        statusLabel.text = string.format('Current Task: %s  Amount: %d  Que: %d',
+        que[1].type, que[1].amount, #que)
+    else
+        statusLabel.text = "Current Task: -  Amount: 0   Que: 0"
+    end
+    workspace:draw()
+end
+
+local function checkAltarCraft()
+    local item = altarTransposer.getStackInSlot(altarSide, 1)
+    if item ~= nil then
+        if item.label == que[1].type then
+            altarTransposer.transferItem(altarSide, outputSide)
+            que[1].amount = que[1].amount - item.size
+        end
+    end
+end
+
+local function altarCrafting()
+    if #que > 0 then
+        --send current task resource amount to start crafting process
+        if que[1].crafting == false then
+            storageTransposer.transferItem(storageSide, inputSide, que[1].amount, slateResourceSlot)
+            que[1].crafting = true
+        end
+
+        --check altar for slate type and to subtract amount left for current crafting process
+        checkAltarCraft()
+
+        --current craft is finished
+        if que[1].amount <= 0 then
+            table.remove(que, 1)
+        end
+    else
+        --all crafting que cleared
+        event.removeHandler(craftingHandler)
+    end
+end
+
+--main crafting loop
+local function startCrafting()
+    craftingHandler = event.addHandler(function()
+        altarCrafting()
+        updateStatus()
+    end, craftingCheckInterval)
+end
+
+local function craftRequest(type)
+    local container, amount, submit = craftContainer()
+
+    submit.onTouch = function()
+        if #amount.text > 0 and tonumber(amount.text) ~= nil then
+            --check if wanted amount of slate resource is available
+            local available = storageTransposer.getSlotStackSize(storageSide, slateResourceSlot)
+            local requested = tonumber(amount.text)
+            if requested > available then
+                GUI.alert(string.format("Not enough %s available!", SLATE_RESOURCE))
+            end
+
+            local requestedCraft = {
+                type = type,
+                amount = requested,
+                crafting = false
+            }
+            table.insert(que, requestedCraft)
+            
+            --start crafting loop
+            startCrafting()
+
+            container:remove() -- remove container
+        else 
+            GUI.alert("Missing/Invalid Input!")
+        end
+    end
+end
+
 ---------------------------------------------------------------------------------
 -- event handles
 
 update.onTouch = function()
     getTransposers()
     getSlateSlots()
-    workspace:draw()
+    updateBloodLevel()
+    updateSlateText()
 end
 
 toggleBlood.switch.onStateChanged = function()
@@ -226,7 +317,25 @@ toggleBlood.switch.onStateChanged = function()
     end
 end
 
+slateBtn1.onTouch = function()
+    craftRequest(BLANK)
+end
 
+slateBtn2.onTouch = function()
+    craftRequest(REIN)
+end
+
+slateBtn3.onTouch = function()
+    craftRequest(IMBUED)
+end
+
+slateBtn4.onTouch = function()
+    craftRequest(DEMON)
+end
+
+slateBtn5.onTouch = function()
+    craftRequest(ETH)
+end
 
 ---------------------------------------------------------------------------------
 -- main
@@ -237,10 +346,10 @@ updateBloodLevel()
 updateSlateText()
 
 -- main loop
--- event.addHandler(function()
---     updateSlateText()
---     updateBloodLevel()
--- end, fullCheckInterval)
+event.addHandler(function()
+    updateSlateText()
+    updateBloodLevel()
+end, fullCheckInterval)
 
 -- Draw changes on screen after customizing your window
 workspace:draw()

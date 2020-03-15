@@ -152,7 +152,7 @@ local function getTransposers()
                 elseif name == "storagedrawers:controller" then
                     storageTransposer = t
                     storageSide = i
-                elseif name == "storagedrawers:basicdrawers" then
+                elseif name == "storagedrawers:customdrawers" then
                     inputSide = i
                 elseif name == "minecraft:chest" then
                     outputSide = i
@@ -172,7 +172,7 @@ local function getTransposers()
         workspace:stop()
     end
     if inputSide == nil then
-        GUI.alert("No input drawer found!")
+        GUI.alert("No input custom drawer found!")
         workspace:stop()
     end
     if outputSide == nil then

@@ -73,7 +73,7 @@ local bloodBar = bloodLayout:setPosition(1, 3, bloodLayout:addChild(GUI.progress
 
 local function craftContainer()
     local container = GUI.addBackgroundContainer(workspace, true, true, "Craft Slate")
-    local amount = container.layout:addChild(GUI.input(1, 1, 29, 3, 0xEEEEEEE, 0x555555, 0x999999, 0xFFFFFF, 0x2D2D2D, "1", "Enter Wanted Amount"))
+    local amount = container.layout:addChild(GUI.input(1, 1, 29, 3, 0xEEEEEEE, 0x555555, 0x999999, 0xFFFFFF, 0x2D2D2D, "64", "Enter Wanted Amount"))
     local submit = container.layout:addChild(GUI.button(1, 1, 9, 3, FOREGROUND, LIGHT_TEXT, FOREGROUND, LIGHT_TEXT_PRESSED, "Confirm"))
   
     return container, amount, submit
@@ -104,8 +104,8 @@ local slateResourceSlot --storage slot for resource needed to craft slate
 local bloodLevel = 0    --level of blood in altar (percentage out of 100)
 local bloodMax = 0      --max level of blood allowed in altar
 local que = {}          --stores all requested crafts
-local bloodProducing = false
-local override = false
+local bloodProducing = true
+local override = true
 
 local craftingHandler
 
@@ -131,13 +131,7 @@ local function getTransposers()
     end
 
     redstone = component.get("redstone")
-    --getting initial value of redstone
-    for index, value in ipairs(redstone.getInput()) do
-        if value > 0 then
-            toggleBlood.switch:setState(true)
-            override = true
-        end
-    end
+    toggleBlood.switch:setState(true)
 
     --setting values of sides for each transposer
     for address, transposer in component.list("transposer") do 
@@ -335,14 +329,14 @@ local function checkBlood()
     if override then
         if bloodProducing == false and bloodLevel < 25 then
             bloodProducing = true
-            redstone.setOutput({15, 15, 15, 15, 15, 15}) --redstone on
+            redstone.setOutput({0, 0, 0, 0, 0, 0})      --redstone off
         end
         if bloodProducing and bloodLevel > 95 then
             bloodProducing = false
-            redstone.setOutput({0, 0, 0, 0, 0, 0})      --redstone off
+            redstone.setOutput({15, 15, 15, 15, 15, 15}) --redstone on
         end
     else
-        redstone.setOutput({0, 0, 0, 0, 0, 0})      --redstone off
+        redstone.setOutput({15, 15, 15, 15, 15, 15}) --redstone on
         bloodProducing = false
     end
 end

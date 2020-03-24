@@ -3,7 +3,6 @@
 --Used https://github.com/KaseiFR/ae2-manager as base-line
 
 --ToDO:
--- allow editing of config params
 
 -- Import libraries
 local GUI = require("GUI")
@@ -89,7 +88,8 @@ configLayout:setPosition(2, 1, configLayout:addChild(GUI.label(1, 1, 10, 1, LIGH
 configLayout:setPosition(3, 1, configLayout:addChild(GUI.label(1, 1, 10, 1, LIGHT_TEXT, "Available Recipes")))
 
 -- left list panel
-local selectedRecipes_list = configLayout:setPosition(1, 2, configLayout:addChild(GUI.list(1, 1, 50, 44, 3, 0, FOREGROUND, DARK_TEXT, LIST_ALTERNATE, DARK_TEXT, LIST_SELECTED, LIGHT_TEXT, false)))
+local search_input_selected = configLayout:setPosition(1, 2, configLayout:addChild(GUI.input(1, 1, 50, 3, 0xEEEEEEE, 0x555555, 0x999999, 0xFFFFFF, 0x2D2D2D, "", "Enter Item Name")))
+local selectedRecipes_list = configLayout:setPosition(1, 2, configLayout:addChild(GUI.list(1, 1, 50, 40, 3, 0, FOREGROUND, DARK_TEXT, LIST_ALTERNATE, DARK_TEXT, LIST_SELECTED, LIGHT_TEXT, false)))
 
 -- middle info panel
 local infoContainer = configLayout:setPosition(2, 2, configLayout:addChild(GUI.container(1, 1, 49, 44)))
@@ -114,7 +114,7 @@ availableRecipes_list.selectedItem = -1
 local function add_Container()
   local container = GUI.addBackgroundContainer(workspace, true, true, "Add Recipe")
   local amount = container.layout:addChild(GUI.input(1, 1, 30, 3, 0xEEEEEEE, 0x555555, 0x999999, 0xFFFFFF, 0x2D2D2D, "", "Enter Wanted Amount"))
-  local threshold = container.layout:addChild(GUI.input(1, 1, 30, 3, 0xEEEEEEE, 0x555555, 0x999999, 0xFFFFFF, 0x2D2D2D, "0", "Enter Threshold Amount", true))
+  local threshold = container.layout:addChild(GUI.input(1, 1, 30, 3, 0xEEEEEEE, 0x555555, 0x999999, 0xFFFFFF, 0x2D2D2D, "", "Enter Threshold Amount", true))
   local submit = container.layout:addChild(GUI.button(1, 1, 10, 3, ADD_BUTTON, DARK_TEXT, ADD_BUTTON, LIGHT_TEXT, "Confirm"))
 
   return container, amount, threshold, submit
@@ -131,7 +131,7 @@ end
 
 local function remove_Container(name)
   local container = GUI.addBackgroundContainer(workspace, true, true, "Confirm Remove")
-  local submit = container.layout:addChild(GUI.button(1, 1, 30, 3, 0xCC0000, 0x0F0F0F, 0xFF0000, 0x0F0F0F, string.format("Remove %s", name)))
+  local submit = container.layout:addChild(GUI.button(1, 1, 60, 3, 0xCC0000, 0x0F0F0F, 0xFF0000, 0x0F0F0F, string.format("Remove %s", name)))
   return container, submit
 end
 
@@ -142,8 +142,10 @@ local ae2
 local availableRecipes = {}
 local selectedRecipes = {}
 local filteredRecipes = {}
+local filteredSelectedRecipes = {}
 local status = {}
 local isFiltered = false
+local isSelectedFiltered = false
 
 -- Control how many CPUs to use. 0 is unlimited, negative to keep some CPU free, between 0 and 1 to reserve a share,
 -- and greater than 1 to allocate a fixed number.
@@ -246,6 +248,15 @@ local function displayItem(type, idx)
     itemWanted_label.text = string.format("Wanted: %d", selectedRecipes[idx].wanted)
     itemThreshold_label.text = string.format("Threshold: %d", selectedRecipes[idx].threshold)
   elseif type == 1 then
+    availableRecipes_list.selectedItem = -1
+    addRecipe_button.hidden = true
+    editRecipe_button.hidden = false
+    removeRecipe_button.hidden = false
+    itemName_label.text = filteredSelectedRecipes[idx].label
+    itemStored_label.text = string.format("Stored: %d", filteredSelectedRecipes[idx].stored)
+    itemWanted_label.text = string.format("Wanted: %d", filteredSelectedRecipes[idx].wanted)
+    itemThreshold_label.text = string.format("Threshold: %d", filteredSelectedRecipes[idx].threshold)
+  elseif type == 2 then
     selectedRecipes_list.selectedItem = -1
     addRecipe_button.hidden = false
     editRecipe_button.hidden = true
@@ -281,14 +292,14 @@ local function updateAvailableRecipeList(data, type)
 end
 
 -- add items to GUI list
-local function updateSelectedRecipeList()
+local function updateSelectedRecipeList(data, type)
   -- clears the list
   selectedRecipes_list.selectedItem = -1
   selectedRecipes_list.children = {}
 
-  for k, v in ipairs(selectedRecipes) do
+  for k, v in ipairs(data) do
     selectedRecipes_list:addItem(string.format("%s", v.label)).onTouch = function()
-      displayItem(0, selectedRecipes_list.selectedItem)
+      displayItem(type, selectedRecipes_list.selectedItem)
     end
   end
 end
@@ -302,8 +313,8 @@ local function itemKey(item, withLabel)
   return key
 end
 
-local function findIndex(recipe)
-  for k, v in ipairs(availableRecipes) do
+local function findIndex(recipe, data)
+  for k, v in ipairs(data) do
     if v == recipe then
       return k
     end
@@ -434,7 +445,8 @@ local function updateRecipes(learnNewRecipes)
   end
 
   if learnNewRecipes then
-    updateAvailableRecipeList(availableRecipes, 1) --update right panel
+    updateAvailableRecipeList(availableRecipes, 2) --update right panel
+    updateSelectedRecipeList(selectedRecipes, 0) -- update left panel list
   end
 end
 
@@ -449,26 +461,31 @@ local function addRecipe()
       if isFiltered then
         recipe = filteredRecipes[availableRecipes_list.selectedItem]
         -- need to find index of filtered item from main table
-        local idx = findIndex(recipe)
+        local idx = findIndex(recipe, availableRecipes)
         if idx > 0 then table.remove(availableRecipes, idx) end
         -- reset back to normal
         filteredRecipes = {}
+        isFiltered = false
         search_input.text = ""
       else
         recipe = availableRecipes[availableRecipes_list.selectedItem]
         table.remove(availableRecipes, availableRecipes_list.selectedItem)
       end
-      
-      recipe.wanted = math.floor(tonumber(amount.text))
-      recipe.threshold = math.floor(tonumber(threshold.text))
-      table.insert(selectedRecipes, recipe)
-      -- GUI.alert(recipe) --debugging
-      
-      writeRecipes(selectedRecipes) -- save to table
-      updateSelectedRecipeList() -- update left panel list
-      updateAvailableRecipeList(availableRecipes, 1) -- reset right panel
-      clearDisplay() -- reset center display
-      container:remove() -- remove container
+
+      if tonumber(amount.text) > 0 and tonumber(threshold.text) > 0 then
+        recipe.wanted = math.floor(tonumber(amount.text))
+        recipe.threshold = math.floor(tonumber(threshold.text))
+        table.insert(selectedRecipes, recipe)
+        -- GUI.alert(recipe) --debugging
+        
+        writeRecipes(selectedRecipes) -- save to table
+        updateSelectedRecipeList(selectedRecipes, 0) -- update left panel list
+        updateAvailableRecipeList(availableRecipes, 2) -- reset right panel
+        clearDisplay() -- reset center display
+        container:remove() -- remove container
+      else
+        GUI.alert("Amounts cannot be 0!")
+      end
     else 
       GUI.alert("Missing/Invalid Input!")
     end
@@ -476,18 +493,34 @@ local function addRecipe()
 end
 
 local function editRecipe()
-  local recipe = selectedRecipes[selectedRecipes_list.selectedItem]
+  local recipe = nil
+  -- check if list is filtered or normal
+  if isSelectedFiltered then
+    recipe = filteredSelectedRecipes[selectedRecipes_list.selectedItem]
+    -- reset back to normal
+    filteredSelectedRecipes = {}
+    search_input_selected.text = ""
+    isSelectedFiltered = false
+  else
+    recipe = selectedRecipes[selectedRecipes_list.selectedItem]
+  end
+
   local container, amount, threshold, submit = edit_Container(recipe.wanted, recipe.threshold)
 
   submit.onTouch = function()
     if tonumber(amount.text) ~= nil and tonumber(threshold.text) ~= nil then
-      recipe.wanted = math.floor(tonumber(amount.text))
-      recipe.threshold = math.floor(tonumber(threshold.text))
-      -- GUI.alert(recipe) --debugging
-      
-      writeRecipes(selectedRecipes) -- save to table
-      clearDisplay() -- reset center display
-      container:remove() -- remove container
+      if tonumber(amount.text) > 0 and tonumber(threshold.text) > 0 then
+        recipe.wanted = math.floor(tonumber(amount.text))
+        recipe.threshold = math.floor(tonumber(threshold.text))
+        -- GUI.alert(recipe) --debugging
+
+        writeRecipes(selectedRecipes) -- save to table
+        updateSelectedRecipeList(selectedRecipes, 0) -- update left panel list
+        clearDisplay() -- reset center display
+        container:remove() -- remove container
+      else
+        GUI.alert("Amounts cannot be 0!")
+      end
     else 
       GUI.alert("Missing/Invalid Input!")
     end
@@ -495,14 +528,27 @@ local function editRecipe()
 end
 
 local function removeRecipe()
-  local recipe = selectedRecipes[selectedRecipes_list.selectedItem]
+  local recipe = nil
+   -- check if list is filtered or normal
+   if isSelectedFiltered then
+    recipe = filteredSelectedRecipes[selectedRecipes_list.selectedItem]
+    -- reset back to normal
+    filteredSelectedRecipes = {}
+    search_input_selected.text = ""
+    isSelectedFiltered = false
+  else
+    recipe = selectedRecipes[selectedRecipes_list.selectedItem]
+  end
+
   local container, submit = remove_Container(recipe.label)
 
   submit.onTouch = function()
-    table.remove(selectedRecipes, selectedRecipes_list.selectedItem)
+    local idx = findIndex(recipe, selectedRecipes)
+    if idx > 0 then table.remove(selectedRecipes, idx) end
+
     updateRecipes(true)
     writeRecipes(selectedRecipes) -- save to table
-    updateSelectedRecipeList() -- update left panel list
+    updateSelectedRecipeList(selectedRecipes, 0) -- update left panel list
     clearDisplay() -- reset center display
     container:remove()
   end
@@ -519,9 +565,28 @@ local function filterAvailableRecipes()
       end
     end
     isFiltered = true
-    updateAvailableRecipeList(filteredRecipes, 2)
+    updateAvailableRecipeList(filteredRecipes, 3)
   else --reload all available
     isFiltered = false
+    updateRecipes(true)
+  end
+  clearDisplay()
+end
+
+local function filterSelectedRecipes()
+  local filter = search_input_selected.text
+  if filter and filter ~= '' then
+    filter = unicode.lower(filter)
+    filteredSelectedRecipes = {}
+    for _, recipe in ipairs(selectedRecipes) do
+      if unicode.lower(recipe.label):find(filter) then
+          table.insert(filteredSelectedRecipes, recipe)
+      end
+    end
+    isSelectedFiltered = true
+    updateSelectedRecipeList(filteredSelectedRecipes, 1)
+  else --reload all available
+    isSelectedFiltered = false
     updateRecipes(true)
   end
   clearDisplay()
@@ -657,14 +722,19 @@ configMenu.onTouch = function()
     configLayout.hidden = false
     taskLayout.hidden = true
 
+    clearDisplay()
     updateRecipes(true)
-    updateSelectedRecipeList()
+    updateSelectedRecipeList(selectedRecipes, 0)
     workspace:draw()
   end
 end
 
 search_input.onInputFinished = function()
   filterAvailableRecipes()
+end
+
+search_input_selected.onInputFinished = function()
+  filterSelectedRecipes()
 end
 
 addRecipe_button.onTouch = function()

@@ -146,6 +146,8 @@ local filteredSelectedRecipes = {}
 local status = {}
 local isFiltered = false
 local isSelectedFiltered = false
+local craftingHandler
+local mainHandler
 
 -- Control how many CPUs to use. 0 is unlimited, negative to keep some CPU free, between 0 and 1 to reserve a share,
 -- and greater than 1 to allocate a fixed number.
@@ -450,7 +452,20 @@ local function updateRecipes(learnNewRecipes)
   end
 end
 
+local function workCheck()
+  for _, recipe in ipairs(selectedRecipes) do
+    if recipe.crafting or recipe.error then
+      GUI.alert("Crafting in progress!")
+      checkFuture(recipe) --checking progress of ongoing crafts
+      return true
+    end
+  end
+  return false
+end
+
 local function addRecipe()
+  if workCheck() then return end
+
   local container, amount, threshold, submit = add_Container()
 
   submit.onTouch = function()
@@ -493,6 +508,8 @@ local function addRecipe()
 end
 
 local function editRecipe()
+  if workCheck() then return end
+
   local recipe = nil
   -- check if list is filtered or normal
   if isSelectedFiltered then
@@ -528,6 +545,8 @@ local function editRecipe()
 end
 
 local function removeRecipe()
+  if workCheck() then return end
+  
   local recipe = nil
    -- check if list is filtered or normal
    if isSelectedFiltered then
@@ -706,12 +725,38 @@ function ae2Run(learnNewRecipes)
 end
 
 ---------------------------------------------------------------------------------
+-- main loops
+
+local function initCraftingLoop()
+  -- checks if any recipes have finished crafting or was cancelled to force main loop call
+  craftingHandler = event.addHandler(function()
+    for _, recipe in ipairs(selectedRecipes) do
+      if checkFuture(recipe) then
+        ae2Run(false)
+        return
+      end
+    end
+  end, craftingCheckInterval)
+end
+
+local function initMainLoop()
+  -- main loop
+  mainHandler = event.addHandler(function(e1)
+    ae2Run(false)
+  end, fullCheckInterval)
+end
+
+---------------------------------------------------------------------------------
 -- event handles
 
 taskMenu.onTouch = function()
   if taskLayout.hidden then
     configLayout.hidden = true
     taskLayout.hidden = false
+
+    initCraftingLoop()
+    initMainLoop()
+
     workspace:draw()
   end
 end
@@ -721,6 +766,9 @@ configMenu.onTouch = function()
     --load selected recipes
     configLayout.hidden = false
     taskLayout.hidden = true
+
+    event.removeHandler(craftingHandler)
+    event.removeHandler(mainHandler)
 
     clearDisplay()
     updateRecipes(true)
@@ -754,20 +802,8 @@ end
 checkComponent()
 loadRecipes() --load selected recipes
 
--- checks if any recipes have finished crafting or was cancelled to force main loop call
-event.addHandler(function()
-  for _, recipe in ipairs(selectedRecipes) do
-    if checkFuture(recipe) then
-      ae2Run(false)
-      return
-    end
-  end
-end, craftingCheckInterval)
-
--- main loop
-event.addHandler(function(e1)
-  ae2Run(false)
-end, fullCheckInterval)
+initCraftingLoop()
+initMainLoop()
 
 workspace:draw()
 workspace:start()
